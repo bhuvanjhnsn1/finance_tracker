@@ -26,6 +26,22 @@ with st.sidebar:
     monthly_budget = st.number_input("Monthly budget (₹)", min_value=0, value=20000, step=500)
     st.caption("Tip: Adjust to see alerts on overspending.")
 
+st.subheader("💰 Set Budget Limits")
+
+with st.form("budget_form"):
+    b1, b2 = st.columns([2, 1])
+    with b1: category = st.text_input("Category")
+    with b2: limit_amount = st.number_input("Budget Limit (₹)", min_value=0.0)
+    save_budget = st.form_submit_button("Save Budget")
+
+    if save_budget and category:
+        with Session(session.bind) as s:
+            from db import Budget
+            budget = Budget(category=category, limit_amount=limit_amount)
+            s.merge(budget)  # replaces or inserts
+            s.commit()
+        st.success(f"Budget for '{category}' set to ₹{limit_amount:.2f}")
+
 # --- Add transaction form ---
 with st.form("add_txn", clear_on_submit=True):
     c1, c2, c3, c4 = st.columns([1,2,1,1])
@@ -45,6 +61,18 @@ with st.form("add_txn", clear_on_submit=True):
             s.add(txn)
             s.commit()
         st.success(f"Added: {desc} | ₹{amt:.2f} | {cat_final}")
+
+# --- Budget check ---
+from db import Budget
+with Session(session.bind) as s:
+    budget = s.get(Budget, cat_final)
+    if budget:
+        spent = s.query(Transaction).filter(Transaction.category == cat_final).with_entities(
+            (Transaction.amount).label("amt")
+        ).all()
+        total_spent = sum([x.amt for x in spent])
+        if total_spent > budget.limit_amount:
+            st.warning(f"⚠️ Budget exceeded for '{cat_final}'! (₹{total_spent:,.0f} / ₹{budget.limit_amount:,.0f})")
 
 # --- Read all transactions ---
 with Session(session.bind) as s:
@@ -81,3 +109,5 @@ with c2:
 st.subheader("All Transactions")
 st.dataframe(df.sort_values("date", ascending=False), use_container_width=True)
 st.download_button("⬇️ Export CSV", df.to_csv(index=False).encode("utf-8"), "transactions.csv", "text/csv")
+
+

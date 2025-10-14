@@ -14,5 +14,12 @@ class Transaction(Base):
     amount: Mapped[float] = mapped_column(Float)
     category: Mapped[str] = mapped_column(String(50))
 
-Base.metadata.create_all(engine)
+from sqlalchemy import Column, String, Float
+
+class Budget(Base):
+    __tablename__ = "budget"
+    category = Column(String, primary_key=True)
+    limit_amount = Column(Float)
+
+Base.metadata.create_all(bind = engine)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)

@@ -64,15 +64,33 @@ with st.form("add_txn", clear_on_submit=True):
 
 # --- Budget check ---
 from db import Budget
-with Session(session.bind) as s:
-    budget = s.get(Budget, cat_final)
-    if budget:
-        spent = s.query(Transaction).filter(Transaction.category == cat_final).with_entities(
-            (Transaction.amount).label("amt")
-        ).all()
-        total_spent = sum([x.amt for x in spent])
-        if total_spent > budget.limit_amount:
-            st.warning(f"⚠️ Budget exceeded for '{cat_final}'! (₹{total_spent:,.0f} / ₹{budget.limit_amount:,.0f})")
+
+# Save last used category in Streamlit session
+if "last_category" not in st.session_state:
+    st.session_state.last_category = None
+
+# Update it when a new transaction is added
+if "cat_final" in locals():
+    st.session_state.last_category = cat_final
+
+# Only check budget if a category has been added before
+if st.session_state.last_category:
+    with Session(session.bind) as s:
+        budget = s.get(Budget, st.session_state.last_category)
+        if budget:
+            spent = (
+                s.query(Transaction)
+                .filter(Transaction.category == st.session_state.last_category)
+                .with_entities(Transaction.amount.label("amt"))
+                .all()
+            )
+            total_spent = sum([x.amt for x in spent])
+            if total_spent > budget.limit_amount:
+                st.warning(
+                    f"⚠️ Budget exceeded for '{st.session_state.last_category}'! "
+                    f"(₹{total_spent:,.0f} / ₹{budget.limit_amount:,.0f})"
+                )
+
 
 # --- Read all transactions ---
 with Session(session.bind) as s:

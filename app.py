@@ -104,15 +104,23 @@ if df.empty:
 # --- Apply Filters ---
 st.sidebar.header("Filters")
 
-# Date range filter
-min_date = df["date"].min()
-max_date = df["date"].max()
-start_date, end_date = st.sidebar.date_input(
+# --- Date range filter (fixed) ---
+min_date = pd.to_datetime(df["date"]).min()
+max_date = pd.to_datetime(df["date"]).max()
+
+date_range = st.sidebar.date_input(
     "Select Date Range",
-    [min_date, max_date],
+    (min_date, max_date),
     min_value=min_date,
     max_value=max_date
 )
+
+# Unpack safely
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    start_date, end_date = date_range
+else:
+    start_date, end_date = min_date, max_date
+
 
 # Category filter
 categories = ["All"] + sorted(df["category"].unique().tolist())

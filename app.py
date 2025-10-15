@@ -126,12 +126,35 @@ else:
 categories = ["All"] + sorted(df["category"].unique().tolist())
 selected_cat = st.sidebar.selectbox("Filter by Category", categories)
 
-# Filter logic
-mask = (df["date"] >= pd.to_datetime(start_date)) & (df["date"] <= pd.to_datetime(end_date))
-if selected_cat != "All":
-    mask &= (df["category"] == selected_cat)
+# --- Safe Filter Logic with Date Validation ---
+if not df.empty:
+    # Convert 'date' column to datetime safely
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-df_filtered = df[mask]
+    # Drop rows with invalid or missing dates
+    df = df.dropna(subset=["date"])
+
+    # Convert Streamlit date inputs to datetime
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+
+    # Create date range mask
+    mask = (df["date"] >= start_dt) & (df["date"] <= end_dt)
+
+    # Category filter
+    if selected_cat != "All":
+        mask &= (df["category"] == selected_cat)
+
+    df_filtered = df.loc[mask]
+
+    # If no data found, show a user-friendly warning
+    if df_filtered.empty:
+        st.warning("⚠️ No transactions found for the selected date range or category.")
+else:
+    df_filtered = pd.DataFrame()
+    st.warning("⚠️ No data available to filter.")
+
 
 # --- KPIs ---
 df_filtered["month"] = pd.to_datetime(df_filtered["date"]).dt.to_period("M").astype(str)

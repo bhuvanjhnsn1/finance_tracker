@@ -101,6 +101,24 @@ if df.empty:
     st.info("No transactions yet — add one above.")
     st.stop()
 
+# --- Summary Dashboard ---
+st.subheader("📊 Financial Summary")
+
+# Convert 'amount' to numeric (in case)
+df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+
+# Assuming positive values are expenses for now (you can later separate income)
+total_expense = df["amount"].sum()
+total_income = 0  # You can later allow income entries
+
+balance = total_income - total_expense
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Income", f"₹{total_income:,.2f}")
+col2.metric("Total Expense", f"₹{total_expense:,.2f}")
+col3.metric("Net Balance", f"₹{balance:,.2f}")
+
+
 # --- Apply Filters ---
 st.sidebar.header("Filters")
 

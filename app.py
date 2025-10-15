@@ -231,3 +231,43 @@ with c2:
 st.subheader("All Transactions")
 st.dataframe(df_filtered.sort_values("date", ascending=False), use_container_width=True)
 st.download_button("⬇️ Export CSV", df_filtered.to_csv(index=False).encode("utf-8"), "transactions.csv", "text/csv")
+
+
+# --- Income vs Expense Analysis ---
+df["type"] = df["type"].fillna("Expense")  # Safety check
+
+total_income = df.loc[df["type"] == "Income", "amount"].sum()
+total_expense = df.loc[df["type"] == "Expense", "amount"].sum()
+net_balance = total_income - total_expense
+
+st.subheader("📊 Income & Expense Summary")
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Total Income", f"₹{total_income:,.2f}")
+c2.metric("Total Expense", f"₹{total_expense:,.2f}")
+c3.metric("Net Balance", f"₹{net_balance:,.2f}", delta=f"{(net_balance/total_income*100 if total_income else 0):.1f}% saved")
+
+# --- Monthly Trend Chart ---
+df["month"] = pd.to_datetime(df["date"]).dt.to_period("M").astype(str)
+monthly_summary = df.groupby(["month", "type"], as_index=False)["amount"].sum()
+
+fig3 = px.bar(
+    monthly_summary,
+    x="month",
+    y="amount",
+    color="type",
+    barmode="group",
+    title="Monthly Income vs Expense",
+    labels={"amount": "Amount (₹)", "month": "Month"},
+)
+st.plotly_chart(fig3, use_container_width=True)
+
+# --- Expense by Category ---
+expense_by_cat = df[df["type"] == "Expense"].groupby("category", as_index=False)["amount"].sum()
+fig4 = px.pie(
+    expense_by_cat,
+    names="category",
+    values="amount",
+    title="Expense Distribution by Category",
+)
+st.plotly_chart(fig4, use_container_width=True)

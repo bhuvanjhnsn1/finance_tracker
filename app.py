@@ -3,12 +3,13 @@ import pandas as pd
 from datetime import date
 import joblib
 from sqlalchemy.orm import Session
-from db import SessionLocal, Transaction
+from db import SessionLocal, Transaction, Budget
 from sqlalchemy import select
 import plotly.express as px
 
 st.set_page_config(page_title="Personal Finance Tracker", page_icon="💸", layout="wide")
 
+# --- Cached resources ---
 @st.cache_resource
 def get_session():
     return SessionLocal()
@@ -20,82 +21,63 @@ def load_model():
 session = get_session()
 model = load_model()
 
+# --- Sidebar ---
+st.sidebar.header("💰 Budget & Filters")
+monthly_budget = st.sidebar.number_input("Monthly budget (₹)", min_value=0, value=20000, step=500)
+st.sidebar.caption("Tip: Adjust to see alerts on overspending.")
+
+# --- App title ---
 st.title("💸 Personal Finance Tracker (AI-assisted)")
-with st.sidebar:
-    st.header("Budget & Filters")
-    monthly_budget = st.number_input("Monthly budget (₹)", min_value=0, value=20000, step=500)
-    st.caption("Tip: Adjust to see alerts on overspending.")
 
+# --- Budget setup form ---
 st.subheader("💰 Set Budget Limits")
-
 with st.form("budget_form"):
     b1, b2 = st.columns([2, 1])
-    with b1: category = st.text_input("Category")
-    with b2: limit_amount = st.number_input("Budget Limit (₹)", min_value=0.0)
+    with b1:
+        category = st.text_input("Category")
+    with b2:
+        limit_amount = st.number_input("Budget Limit (₹)", min_value=0.0)
     save_budget = st.form_submit_button("Save Budget")
 
     if save_budget and category:
         with Session(session.bind) as s:
-            from db import Budget
             budget = Budget(category=category, limit_amount=limit_amount)
-            s.merge(budget)  # replaces or inserts
+            s.merge(budget)
             s.commit()
-        st.success(f"Budget for '{category}' set to ₹{limit_amount:.2f}")
+        st.success(f"Budget for '{category}' set to ₹{limit_amount:,.2f}")
 
+# --- Add transaction form ---
 with st.form("add_txn", clear_on_submit=True):
     c1, c2, c3, c4, c5 = st.columns([1, 2, 1, 1, 1])
-    with c1: d = st.date_input("Date", value=date.today())
-    with c2: desc = st.text_input("Description", placeholder="e.g., Salary, Pizza, Uber, Rent")
-    with c3: amt = st.number_input("Amount", min_value=0.0, step=10.0)
-    with c4: txn_type = st.selectbox("Type", ["Expense", "Income"])
-    with c5: cat = st.selectbox("Category (or AI)", ["(AI) auto-predict", "Food", "Groceries", "Rent", "Utilities", "Entertainment", "Travel", "Transport", "Shopping", "Health", "Salary", "Freelance", "Other"])
-    
+    with c1:
+        d = st.date_input("Date", value=date.today())
+    with c2:
+        desc = st.text_input("Description", placeholder="e.g., Salary, Pizza, Uber, Rent")
+    with c3:
+        amt = st.number_input("Amount", min_value=0.0, step=10.0)
+    with c4:
+        txn_type = st.selectbox("Type", ["Expense", "Income"])
+    with c5:
+        cat = st.selectbox(
+            "Category (or AI)",
+            ["(AI) auto-predict", "Food", "Groceries", "Rent", "Utilities", "Entertainment",
+             "Travel", "Transport", "Shopping", "Health", "Salary", "Freelance", "Other"]
+        )
+
     submitted = st.form_submit_button("Add")
     if submitted and desc and amt > 0:
         if cat == "(AI) auto-predict":
-            pred = model.predict([desc])[0]
-            cat_final = pred
+            cat_final = model.predict([desc])[0]
         else:
             cat_final = cat
-        
+
         txn = Transaction(date=d, description=desc, amount=float(amt), category=cat_final, type=txn_type)
         with Session(session.bind) as s:
             s.add(txn)
             s.commit()
         st.success(f"Added: {desc} | ₹{amt:.2f} | {txn_type} | {cat_final}")
 
-# --- Budget check ---
-from db import Budget
-
-# Save last used category in Streamlit session
-if "last_category" not in st.session_state:
-    st.session_state.last_category = None
-
-# Update it when a new transaction is added
-if "cat_final" in locals():
-    st.session_state.last_category = cat_final
-
-# Only check budget if a category has been added before
-if st.session_state.last_category:
-    with Session(session.bind) as s:
-        budget = s.get(Budget, st.session_state.last_category)
-        if budget:
-            spent = (
-                s.query(Transaction)
-                .filter(Transaction.category == st.session_state.last_category)
-                .with_entities(Transaction.amount.label("amt"))
-                .all()
-            )
-            total_spent = sum([x.amt for x in spent])
-            if total_spent > budget.limit_amount:
-                st.warning(
-                    f"⚠️ Budget exceeded for '{st.session_state.last_category}'! "
-                    f"(₹{total_spent:,.0f} / ₹{budget.limit_amount:,.0f})"
-                )
-
-
-# --- Read all transactions ---
-# --- Read all transactions ---
+# --- Load all transactions ---
 with Session(session.bind) as s:
     df = pd.read_sql(select(Transaction), s.bind)
 
@@ -103,30 +85,16 @@ if df.empty:
     st.info("No transactions yet — add one above.")
     st.stop()
 
-# --- Summary Dashboard ---
-st.subheader("📊 Financial Summary")
-
-# Convert 'amount' to numeric (in case)
+# --- Convert datatypes safely ---
 df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
+df["type"] = df["type"].fillna("Expense")
 
-# Assuming positive values are expenses for now (you can later separate income)
-total_expense = df["amount"].sum()
-total_income = 0  # You can later allow income entries
+# --- Sidebar Filters ---
+st.sidebar.subheader("Filters")
 
-balance = total_income - total_expense
-
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Income", f"₹{total_income:,.2f}")
-col2.metric("Total Expense", f"₹{total_expense:,.2f}")
-col3.metric("Net Balance", f"₹{balance:,.2f}")
-
-
-# --- Apply Filters ---
-st.sidebar.header("Filters")
-
-# --- Date range filter (fixed) ---
-min_date = pd.to_datetime(df["date"]).min()
-max_date = pd.to_datetime(df["date"]).max()
+min_date = df["date"].min()
+max_date = df["date"].max()
 
 date_range = st.sidebar.date_input(
     "Select Date Range",
@@ -134,140 +102,79 @@ date_range = st.sidebar.date_input(
     min_value=min_date,
     max_value=max_date
 )
+start_date, end_date = date_range if isinstance(date_range, tuple) else (min_date, max_date)
 
-# Unpack safely
-if isinstance(date_range, tuple) and len(date_range) == 2:
-    start_date, end_date = date_range
-else:
-    start_date, end_date = min_date, max_date
-
-
-# Category filter
 categories = ["All"] + sorted(df["category"].unique().tolist())
 selected_cat = st.sidebar.selectbox("Filter by Category", categories)
 
-# --- Safe Filter Logic with Date Validation ---
-if not df.empty:
-    # Convert 'date' column to datetime safely
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+mask = (df["date"] >= pd.to_datetime(start_date)) & (df["date"] <= pd.to_datetime(end_date))
+if selected_cat != "All":
+    mask &= (df["category"] == selected_cat)
+df_filtered = df.loc[mask]
 
-    # Drop rows with invalid or missing dates
-    df = df.dropna(subset=["date"])
+if df_filtered.empty:
+    st.warning("⚠️ No transactions found for the selected date range or category.")
+    st.stop()
 
-    # Convert Streamlit date inputs to datetime
-    start_dt = pd.to_datetime(start_date)
-    end_dt = pd.to_datetime(end_date)
+# --- Financial Summary ---
+st.subheader("📊 Financial Summary")
 
-    # Create date range mask
-    mask = (df["date"] >= start_dt) & (df["date"] <= end_dt)
-
-    # Category filter
-    if selected_cat != "All":
-        mask &= (df["category"] == selected_cat)
-
-    df_filtered = df.loc[mask]
-
-    # If no data found, show a user-friendly warning
-    if df_filtered.empty:
-        st.warning("⚠️ No transactions found for the selected date range or category.")
-else:
-    df_filtered = pd.DataFrame()
-    st.warning("⚠️ No data available to filter.")
-
-
-# --- KPIs ---
-df_filtered["month"] = pd.to_datetime(df_filtered["date"]).dt.to_period("M").astype(str)
-m_latest = df_filtered["month"].max()
-m_total = df_filtered.loc[df_filtered["month"]==m_latest, "amount"].sum() if not df_filtered.empty else 0
-k1, k2, k3 = st.columns(3)
-k1.metric("This month", f"₹{m_total:,.0f}")
-k2.metric("Transactions", f"{len(df_filtered)}")
-k3.metric("Categories", f"{df_filtered['category'].nunique()}")
-
-if m_total > monthly_budget:
-    st.warning(f"Budget exceeded by ₹{m_total - monthly_budget:,.0f} in {m_latest}")
-
-total_income = df[df["type"] == "Income"]["amount"].sum()
-total_expense = df[df["type"] == "Expense"]["amount"].sum()
+total_income = df_filtered.loc[df_filtered["type"] == "Income", "amount"].sum()
+total_expense = df_filtered.loc[df_filtered["type"] == "Expense", "amount"].sum()
 net_balance = total_income - total_expense
 
-k1, k2, k3 = st.columns(3)
-k1.metric("Total Income", f"₹{total_income:,.0f}")
-k2.metric("Total Expense", f"₹{total_expense:,.0f}")
-k3.metric("Net Balance", f"₹{net_balance:,.0f}")
+c1, c2, c3 = st.columns(3)
+c1.metric("Total Income", f"₹{total_income:,.0f}")
+c2.metric("Total Expense", f"₹{total_expense:,.0f}")
+c3.metric("Net Balance", f"₹{net_balance:,.0f}")
 
+# --- Budget Warning ---
+latest_month = pd.to_datetime(df_filtered["date"]).dt.to_period("M").max()
+this_month_expense = df_filtered.loc[
+    (pd.to_datetime(df_filtered["date"]).dt.to_period("M") == latest_month)
+    & (df_filtered["type"] == "Expense"),
+    "amount"
+].sum()
 
-# --- Summary Insights ---
-st.subheader("📊 Spending Insights")
+if this_month_expense > monthly_budget:
+    st.warning(f"⚠️ Budget exceeded by ₹{this_month_expense - monthly_budget:,.0f} in {latest_month}")
 
-if not df_filtered.empty:
-    by_cat = df_filtered.groupby("category", as_index=False)["amount"].sum().sort_values("amount", ascending=False)
-    top3 = by_cat.head(3)
-    if not top3.empty:
-        st.markdown("### 🥇 Top 3 Spending Categories")
-        for i, row in top3.iterrows():
-            st.write(f"- **{row['category']}** — ₹{row['amount']:,.0f}")
-else:
-    st.info("No transactions for the selected filters.")
+# --- Spending Insights ---
+st.subheader("💡 Spending Insights")
+
+by_cat = (
+    df_filtered[df_filtered["type"] == "Expense"]
+    .groupby("category", as_index=False)["amount"]
+    .sum()
+    .sort_values("amount", ascending=False)
+)
+if not by_cat.empty:
+    st.markdown("### 🥇 Top 3 Spending Categories")
+    for i, row in by_cat.head(3).iterrows():
+        st.write(f"- **{row['category']}** — ₹{row['amount']:,.0f}")
 
 # --- Charts ---
 c1, c2 = st.columns(2)
 with c1:
-    if not df_filtered.empty:
+    if not by_cat.empty:
         fig1 = px.pie(by_cat, names="category", values="amount", title="Spending by Category")
         st.plotly_chart(fig1, use_container_width=True)
-    else:
-        st.write("No data for chart.")
 with c2:
-    if not df_filtered.empty:
-        by_month = df_filtered.groupby("month", as_index=False)["amount"].sum()
-        fig2 = px.bar(by_month, x="month", y="amount", title="Monthly Spend Trend")
-        st.plotly_chart(fig2, use_container_width=True)
-    else:
-        st.write("No data for chart.")
+    by_month = (
+        df_filtered.groupby([pd.to_datetime(df_filtered["date"]).dt.to_period("M"), "type"], as_index=False)["amount"]
+        .sum()
+    )
+    by_month["month"] = by_month["date"].astype(str)
+    fig2 = px.bar(by_month, x="month", y="amount", color="type", barmode="group",
+                  title="Monthly Income vs Expense Trend")
+    st.plotly_chart(fig2, use_container_width=True)
 
-# --- Table + export ---
-st.subheader("All Transactions")
+# --- Transactions Table ---
+st.subheader("📋 All Transactions")
 st.dataframe(df_filtered.sort_values("date", ascending=False), use_container_width=True)
-st.download_button("⬇️ Export CSV", df_filtered.to_csv(index=False).encode("utf-8"), "transactions.csv", "text/csv")
-
-
-# --- Income vs Expense Analysis ---
-df["type"] = df["type"].fillna("Expense")  # Safety check
-
-total_income = df.loc[df["type"] == "Income", "amount"].sum()
-total_expense = df.loc[df["type"] == "Expense", "amount"].sum()
-net_balance = total_income - total_expense
-
-st.subheader("📊 Income & Expense Summary")
-
-c1, c2, c3 = st.columns(3)
-c1.metric("Total Income", f"₹{total_income:,.2f}")
-c2.metric("Total Expense", f"₹{total_expense:,.2f}")
-c3.metric("Net Balance", f"₹{net_balance:,.2f}", delta=f"{(net_balance/total_income*100 if total_income else 0):.1f}% saved")
-
-# --- Monthly Trend Chart ---
-df["month"] = pd.to_datetime(df["date"]).dt.to_period("M").astype(str)
-monthly_summary = df.groupby(["month", "type"], as_index=False)["amount"].sum()
-
-fig3 = px.bar(
-    monthly_summary,
-    x="month",
-    y="amount",
-    color="type",
-    barmode="group",
-    title="Monthly Income vs Expense",
-    labels={"amount": "Amount (₹)", "month": "Month"},
+st.download_button(
+    "⬇️ Export CSV",
+    df_filtered.to_csv(index=False).encode("utf-8"),
+    "transactions.csv",
+    "text/csv"
 )
-st.plotly_chart(fig3, use_container_width=True)
-
-# --- Expense by Category ---
-expense_by_cat = df[df["type"] == "Expense"].groupby("category", as_index=False)["amount"].sum()
-fig4 = px.pie(
-    expense_by_cat,
-    names="category",
-    values="amount",
-    title="Expense Distribution by Category",
-)
-st.plotly_chart(fig4, use_container_width=True)

@@ -7,6 +7,7 @@ from db import SessionLocal, Transaction, Budget
 from sqlalchemy import select
 import plotly.express as px
 
+# --- Page setup ---
 st.set_page_config(page_title="Personal Finance Tracker", page_icon="💸", layout="wide")
 
 # --- Cached resources ---
@@ -85,7 +86,7 @@ if df.empty:
     st.info("No transactions yet — add one above.")
     st.stop()
 
-# --- Convert datatypes safely ---
+# --- Clean datatypes ---
 df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
 df["type"] = df["type"].fillna("Expense")
@@ -154,19 +155,33 @@ if not by_cat.empty:
         st.write(f"- **{row['category']}** — ₹{row['amount']:,.0f}")
 
 # --- Charts ---
+st.subheader("📈 Visual Analysis")
 c1, c2 = st.columns(2)
+
+# Pie chart: spending by category
 with c1:
     if not by_cat.empty:
         fig1 = px.pie(by_cat, names="category", values="amount", title="Spending by Category")
         st.plotly_chart(fig1, use_container_width=True)
+
+# Bar chart: monthly trend
 with c2:
     by_month = (
-        df_filtered.groupby([pd.to_datetime(df_filtered["date"]).dt.to_period("M"), "type"], as_index=False)["amount"]
-        .sum()
+        df_filtered.groupby(
+            [pd.to_datetime(df_filtered["date"]).dt.to_period("M").rename("month"), "type"],
+            as_index=False
+        )["amount"].sum()
     )
-    by_month["month"] = by_month["date"].astype(str)
-    fig2 = px.bar(by_month, x="month", y="amount", color="type", barmode="group",
-                  title="Monthly Income vs Expense Trend")
+    by_month["month"] = by_month["month"].astype(str)
+
+    fig2 = px.bar(
+        by_month,
+        x="month",
+        y="amount",
+        color="type",
+        barmode="group",
+        title="Monthly Income vs Expense Trend"
+    )
     st.plotly_chart(fig2, use_container_width=True)
 
 # --- Transactions Table ---

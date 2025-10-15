@@ -42,13 +42,14 @@ with st.form("budget_form"):
             s.commit()
         st.success(f"Budget for '{category}' set to ₹{limit_amount:.2f}")
 
-# --- Add transaction form ---
 with st.form("add_txn", clear_on_submit=True):
-    c1, c2, c3, c4 = st.columns([1,2,1,1])
+    c1, c2, c3, c4, c5 = st.columns([1, 2, 1, 1, 1])
     with c1: d = st.date_input("Date", value=date.today())
-    with c2: desc = st.text_input("Description", placeholder="e.g., pizza, uber, rent")
+    with c2: desc = st.text_input("Description", placeholder="e.g., Salary, Pizza, Uber, Rent")
     with c3: amt = st.number_input("Amount", min_value=0.0, step=10.0)
-    with c4: cat = st.selectbox("Category (or AI)", ["(AI) auto-predict","Food","Groceries","Rent","Utilities","Entertainment","Travel","Transport","Shopping","Health","Other"])
+    with c4: txn_type = st.selectbox("Type", ["Expense", "Income"])
+    with c5: cat = st.selectbox("Category (or AI)", ["(AI) auto-predict", "Food", "Groceries", "Rent", "Utilities", "Entertainment", "Travel", "Transport", "Shopping", "Health", "Salary", "Freelance", "Other"])
+    
     submitted = st.form_submit_button("Add")
     if submitted and desc and amt > 0:
         if cat == "(AI) auto-predict":
@@ -56,11 +57,12 @@ with st.form("add_txn", clear_on_submit=True):
             cat_final = pred
         else:
             cat_final = cat
-        txn = Transaction(date=d, description=desc, amount=float(amt), category=cat_final)
+        
+        txn = Transaction(date=d, description=desc, amount=float(amt), category=cat_final, type=txn_type)
         with Session(session.bind) as s:
             s.add(txn)
             s.commit()
-        st.success(f"Added: {desc} | ₹{amt:.2f} | {cat_final}")
+        st.success(f"Added: {desc} | ₹{amt:.2f} | {txn_type} | {cat_final}")
 
 # --- Budget check ---
 from db import Budget

@@ -93,6 +93,7 @@ if st.session_state.last_category:
 
 
 # --- Read all transactions ---
+# --- Read all transactions ---
 with Session(session.bind) as s:
     df = pd.read_sql(select(Transaction), s.bind)
 
@@ -100,32 +101,72 @@ if df.empty:
     st.info("No transactions yet — add one above.")
     st.stop()
 
+# --- Apply Filters ---
+st.sidebar.header("Filters")
+
+# Date range filter
+min_date = df["date"].min()
+max_date = df["date"].max()
+start_date, end_date = st.sidebar.date_input(
+    "Select Date Range",
+    [min_date, max_date],
+    min_value=min_date,
+    max_value=max_date
+)
+
+# Category filter
+categories = ["All"] + sorted(df["category"].unique().tolist())
+selected_cat = st.sidebar.selectbox("Filter by Category", categories)
+
+# Filter logic
+mask = (df["date"] >= pd.to_datetime(start_date)) & (df["date"] <= pd.to_datetime(end_date))
+if selected_cat != "All":
+    mask &= (df["category"] == selected_cat)
+
+df_filtered = df[mask]
+
 # --- KPIs ---
-df["month"] = pd.to_datetime(df["date"]).dt.to_period("M").astype(str)
-m_latest = df["month"].max()
-m_total = df.loc[df["month"]==m_latest, "amount"].sum()
+df_filtered["month"] = pd.to_datetime(df_filtered["date"]).dt.to_period("M").astype(str)
+m_latest = df_filtered["month"].max()
+m_total = df_filtered.loc[df_filtered["month"]==m_latest, "amount"].sum() if not df_filtered.empty else 0
 k1, k2, k3 = st.columns(3)
 k1.metric("This month", f"₹{m_total:,.0f}")
-k2.metric("Transactions", f"{len(df)}")
-k3.metric("Categories", f"{df['category'].nunique()}")
+k2.metric("Transactions", f"{len(df_filtered)}")
+k3.metric("Categories", f"{df_filtered['category'].nunique()}")
 
 if m_total > monthly_budget:
     st.warning(f"Budget exceeded by ₹{m_total - monthly_budget:,.0f} in {m_latest}")
 
+# --- Summary Insights ---
+st.subheader("📊 Spending Insights")
+
+if not df_filtered.empty:
+    by_cat = df_filtered.groupby("category", as_index=False)["amount"].sum().sort_values("amount", ascending=False)
+    top3 = by_cat.head(3)
+    if not top3.empty:
+        st.markdown("### 🥇 Top 3 Spending Categories")
+        for i, row in top3.iterrows():
+            st.write(f"- **{row['category']}** — ₹{row['amount']:,.0f}")
+else:
+    st.info("No transactions for the selected filters.")
+
 # --- Charts ---
 c1, c2 = st.columns(2)
 with c1:
-    by_cat = df.groupby("category", as_index=False)["amount"].sum()
-    fig1 = px.pie(by_cat, names="category", values="amount", title="Spending by Category")
-    st.plotly_chart(fig1, use_container_width=True)
+    if not df_filtered.empty:
+        fig1 = px.pie(by_cat, names="category", values="amount", title="Spending by Category")
+        st.plotly_chart(fig1, use_container_width=True)
+    else:
+        st.write("No data for chart.")
 with c2:
-    by_month = df.groupby("month", as_index=False)["amount"].sum()
-    fig2 = px.bar(by_month, x="month", y="amount", title="Monthly Spend Trend")
-    st.plotly_chart(fig2, use_container_width=True)
+    if not df_filtered.empty:
+        by_month = df_filtered.groupby("month", as_index=False)["amount"].sum()
+        fig2 = px.bar(by_month, x="month", y="amount", title="Monthly Spend Trend")
+        st.plotly_chart(fig2, use_container_width=True)
+    else:
+        st.write("No data for chart.")
 
 # --- Table + export ---
 st.subheader("All Transactions")
-st.dataframe(df.sort_values("date", ascending=False), use_container_width=True)
-st.download_button("⬇️ Export CSV", df.to_csv(index=False).encode("utf-8"), "transactions.csv", "text/csv")
-
-
+st.dataframe(df_filtered.sort_values("date", ascending=False), use_container_width=True)
+st.download_button("⬇️ Export CSV", df_filtered.to_csv(index=False).encode("utf-8"), "transactions.csv", "text/csv")

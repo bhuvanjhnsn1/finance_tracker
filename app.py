@@ -188,6 +188,16 @@ k3.metric("Categories", f"{df_filtered['category'].nunique()}")
 if m_total > monthly_budget:
     st.warning(f"Budget exceeded by ₹{m_total - monthly_budget:,.0f} in {m_latest}")
 
+total_income = df[df["type"] == "Income"]["amount"].sum()
+total_expense = df[df["type"] == "Expense"]["amount"].sum()
+net_balance = total_income - total_expense
+
+k1, k2, k3 = st.columns(3)
+k1.metric("Total Income", f"₹{total_income:,.0f}")
+k2.metric("Total Expense", f"₹{total_expense:,.0f}")
+k3.metric("Net Balance", f"₹{net_balance:,.0f}")
+
+
 # --- Summary Insights ---
 st.subheader("📊 Spending Insights")
 
